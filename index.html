@@ -3,13 +3,13 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>BookAI - Uso Local e Pessoal</title>
+    <title>BookAI - Uso Local e Pessoal (Final)</title>
     
     <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js"></script>
 
     <style>
-        /* [INÍCIO DO CSS] (Mantido similar ao anterior para layout) */
+        /* [INÍCIO DO CSS] */
         body { font-family: 'Arial', sans-serif; margin: 0; padding: 0; background-color: #f4f7f6; color: #333; }
         #app-container { max-width: 1000px; margin: 0 auto; padding: 20px; }
         header { display: flex; align-items: center; padding-bottom: 20px; border-bottom: 2px solid #ddd; margin-bottom: 30px; }
@@ -35,6 +35,19 @@
         .book-page { width: 700px; height: 990px; padding: 50px; box-sizing: border-box; font-size: 12pt; line-height: 1.6; page-break-after: always; }
         .cover-page { display: flex; flex-direction: column; align-items: center; justify-content: center; text-align: center; height: 990px; background-color: #2c3e50; color: white; page-break-after: always; }
         .cover-image { width: 400px; height: 550px; margin-bottom: 30px; object-fit: cover; border: 5px solid #ecf0f1; background-color: #34495e; }
+
+        /* Estilos do Modal (Visualização/Edição) */
+        .modal { display: none; position: fixed; z-index: 100; left: 0; top: 0; width: 100%; height: 100%; overflow: auto; background-color: rgba(0,0,0,0.7); }
+        .modal-content { background-color: #fefefe; margin: 5% auto; padding: 20px; border: 1px solid #888; width: 80%; max-width: 900px; border-radius: 8px; }
+        .modal-content h3 { border-bottom: 2px solid #ddd; padding-bottom: 10px; margin-bottom: 15px; }
+        .modal-content textarea { width: 100%; height: 400px; padding: 10px; border: 1px solid #ccc; box-sizing: border-box; resize: vertical; font-size: 1em; font-family: monospace; }
+        .close-btn { color: #aaa; float: right; font-size: 28px; font-weight: bold; }
+        .close-btn:hover, .close-btn:focus { color: #000; text-decoration: none; cursor: pointer; }
+        #modal-actions { text-align: right; margin-top: 15px; }
+        #modal-actions button { padding: 10px 20px; margin-left: 10px; cursor: pointer; border: none; border-radius: 5px; }
+        #save-edit-btn { background-color: #2ecc71; color: white; }
+        #cancel-edit-btn { background-color: #ccc; color: #333; }
+
         /* [FIM DO CSS] */
     </style>
 </head>
@@ -48,7 +61,7 @@
 
         <div id="main-page" style="display: block;">
             <h2>O que você quer criar hoje? 📚✨</h2>
-            <input type="text" id="prompt-input" placeholder="Digite a ideia principal do seu livro..." onkeyup="checkEnter(event)">
+            <input type="text" id="prompt-input" placeholder="Digite a ideia principal do seu livro (ex: Um detetive robô em um mundo distópico de 2077)..." onkeyup="checkEnter(event)">
         </div>
 
         <div id="config-page" style="display: none;">
@@ -91,7 +104,7 @@
                 <textarea id="synopsis-text"></textarea>
             </div>
             
-            <button id="generate-button" onclick="generateEbook()">Gerar Ebook e Capa em PDF</button>
+            <button id="generate-button" onclick="callGeminiAndOpenEditor()">Gerar Rascunho e Visualizar Edição</button>
             <p id="loading-message">⏳ Chamando a API Gemini...</p>
             <div id="download-link">
                 <a href="#" id="pdf-download" download="BookAI_Ebook.pdf">⬇️ Baixar Livro em PDF</a>
@@ -101,18 +114,43 @@
 
     <div id="pdf-content-area"></div>
 
+    <div id="editorModal" class="modal">
+        <div class="modal-content">
+            <span class="close-btn" onclick="closeModal()">&times;</span>
+            <h3>Revisar e Editar Rascunho do Livro</h3>
+            <p><strong>Prompt da Capa Sugerido:</strong> <span id="capa-prompt-display" style="font-weight: normal;"></span></p>
+            <textarea id="book-content-editor"></textarea>
+            <div id="modal-actions">
+                <button id="cancel-edit-btn" onclick="closeModal()">Cancelar e Voltar</button>
+                <button id="save-edit-btn" onclick="generatePdfFromEditor()">✅ Gerar PDF a partir deste Conteúdo</button>
+            </div>
+        </div>
+    </div>
+
 
     <script>
-        // 🚨🚨🚨 RISCO DE SEGURANÇA: CHAVE EXPOSTA NO CLIENT-SIDE 🚨🚨🚨
-        const API_KEY = 'SUA_CHAVE_GEMINI_AQUI'; // <--- SUBSTITUA AQUI!
+        // 🚨 RISCO DE SEGURANÇA: CHAVE INSERIDA AQUI! 🚨
+        const API_KEY = 'AIzaSyAL0y06n7XJfv4TAxoecRf16cwm7BAKi7w'; 
         const API_URL = 'https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent';
+
+        let lastGeneratedCapaPrompt = "";
+        let lastGeneratedBookContent = "";
+
+        // --- Funções de Navegação e Auxiliares ---
+
+        function cleanTitle(synopsis) {
+            const clean = synopsis.replace(/(o\s+livro\s+sobre|um\s+ebook\s+sobre|o\s+livro\s+de)/i, '').trim();
+            const words = clean.split(' ');
+            return words.slice(0, 5).join(' ') + (words.length > 5 ? '...' : '');
+        }
 
         function goToConfig(synopsis) {
             document.getElementById('main-page').style.display = 'none';
             document.getElementById('config-page').style.display = 'grid';
             document.getElementById('synopsis-text').value = synopsis;
-            if (document.getElementById('title-input').value === 'Meu Grande Ebook' && synopsis.length > 0) {
-                document.getElementById('title-input').value = 'O Livro de ' + synopsis.substring(0, 20) + '...';
+            const currentTitle = document.getElementById('title-input').value;
+            if (currentTitle === 'Meu Grande Ebook' || currentTitle.startsWith('O Livro de')) {
+                document.getElementById('title-input').value = cleanTitle(synopsis);
             }
         }
 
@@ -136,68 +174,70 @@
             return html;
         }
 
-        // ---------------------------------------------
-        // FUNÇÃO PRINCIPAL DE GERAÇÃO E PDF (CHAMADA DIRETA)
-        // ---------------------------------------------
-        async function generateEbook() {
+
+        // --- Funções do Modal ---
+
+        function openEditor() {
+            document.getElementById('capa-prompt-display').innerText = lastGeneratedCapaPrompt;
+            document.getElementById('book-content-editor').value = lastGeneratedBookContent;
+            document.getElementById('editorModal').style.display = 'block';
+        }
+
+        function closeModal() {
+            document.getElementById('editorModal').style.display = 'none';
+        }
+
+
+        // --- Fluxo Principal de Geração ---
+
+        /**
+         * Etapa 1: Chama a API e abre o modal de edição.
+         */
+        async function callGeminiAndOpenEditor() {
             const generateBtn = document.getElementById('generate-button');
             const loadingMsg = document.getElementById('loading-message');
-            const downloadLinkDiv = document.getElementById('download-link');
-
-            // 1. Coleta e estado inicial
+            
             generateBtn.disabled = true;
             generateBtn.innerText = "Conectando à API...";
             loadingMsg.style.display = 'block';
-            downloadLinkDiv.style.display = 'none';
-
-            if (API_KEY === 'SUA_CHAVE_GEMINI_AQUI' || !API_KEY) {
-                alert("ERRO: Por favor, insira sua chave de API válida no código.");
-                generateBtn.disabled = false;
-                generateBtn.innerText = "Gerar Ebook e Capa em PDF";
-                loadingMsg.style.display = 'none';
-                return;
-            }
+            document.getElementById('download-link').style.display = 'none';
 
             const title = document.getElementById('title-input').value;
             const author = document.getElementById('author-input').value || "Autor Desconhecido";
             const pages = document.getElementById('pages-select').value;
             const genre = document.getElementById('genre-input').value;
             const synopsis = document.getElementById('synopsis-text').value;
-            const fontSize = document.getElementById('font-size-select').value;
 
-            // 2. Monta o Prompt e o Payload para a API (diretamente)
             const full_prompt = `
-                Aja como um gerador de conteúdo para Ebooks e um assistente de design.
+                Aja como um escritor e designer de ebooks altamente criativo, humano e profissional.
+                Seu objetivo é satisfazer todos os pedidos do usuário, entregando um texto de alta qualidade.
                 Gere o conteúdo COMPLETO de um ebook de ${pages} páginas.
                 
                 **FORMATO ESTRUTURAL OBRIGATÓRIO:**
                 1. A primeira linha deve ser o prompt de imagem para a capa. Use o formato: [CAPA_PROMPT]: (descrição).
                 2. Use o separador "---" para dividir a capa do conteúdo.
-                3. O conteúdo deve ser em **Markdown** ou HTML e usar marcações **PÁGINA X:**.
+                3. O conteúdo deve ser em **Markdown** (para subtítulos e negrito) e usar marcações **PÁGINA X:**.
                 4. O título é **${title}** e o autor **${author}**.
-                5. O estilo da escrita deve ser ${genre}.
+                5. O estilo da escrita deve ser **humanizado**, envolvente e estritamente ${genre}.
 
                 **SINOPSE:** ${synopsis}
 
                 **EXEMPLO DE INÍCIO DA RESPOSTA:**
 
-                [CAPA_PROMPT]: Um robô detetive no estilo noir, iluminado pela chuva...
+                [CAPA_PROMPT]: Uma ilustração detalhada no estilo óleo, mostrando...
                 ---
                 [CONTEUDO_INICIO]:
+                PÁGINA 1: Introdução
+                ## O Despertar da Inteligência...
                 ...
                 `;
 
             const aiPayload = {
                 contents: [{ role: "user", parts: [{ text: full_prompt }] }],
-                config: {
-                    temperature: 0.8
-                }
+                // Configurações de geração (opcional, removido por padrão para evitar erros como o anterior)
             };
             
-            let aiResponseText;
-
             try {
-                // 3. CHAMADA DIRETA PARA A API GEMINI
                 generateBtn.innerText = "Gerando Conteúdo...";
 
                 const response = await fetch(`${API_URL}?key=${API_KEY}`, {
@@ -207,26 +247,61 @@
                 });
 
                 if (!response.ok) {
-                    const errorJson = await response.json();
-                    throw new Error(`Erro na API Gemini: ${JSON.stringify(errorJson)}`);
+                    const errorJson = await response.json(); 
+                    const errorMessage = errorJson.error.message || `Erro desconhecido HTTP ${response.status}`;
+                    throw new Error(`Erro na API Gemini: ${errorMessage}`);
                 }
 
                 const data = await response.json();
-                aiResponseText = data.candidates[0].content.parts[0].text;
                 
-                // 4. Processar a Resposta
+                const aiResponseText = data.candidates[0].content.parts[0].text;
+                
+                // Processar a Resposta
                 const parts = aiResponseText.split('---').map(s => s.trim());
                 if (parts.length < 2) {
-                    throw new Error("Resposta da IA incompleta. Verifique a formatação do prompt.");
+                    throw new Error("Resposta da IA incompleta. Verifique a formatação do prompt e o conteúdo gerado.");
                 }
                 
-                const capaPromptLine = parts[0].replace('[CAPA_PROMPT]:', '').trim();
-                let bookContentRaw = parts[1].replace('[CONTEUDO_INICIO]:', '').replace(/\[CONTEUDO_FIM\]/g, '').trim();
+                lastGeneratedCapaPrompt = parts[0].replace('[CAPA_PROMPT]:', '').trim();
+                lastGeneratedBookContent = parts[1].replace('[CONTEUDO_INICIO]:', '').replace(/\[CONTEUDO_FIM\]/g, '').trim();
                 
-                const bookContentHTML = parseContentToHtml(bookContentRaw);
+                // Abre o editor para revisão
+                generateBtn.innerText = "✅ Rascunho Pronto. Edite Agora.";
+                loadingMsg.style.display = 'none';
+                openEditor();
+
+            } catch (error) {
+                console.error("Erro Crítico:", error);
+                alert("Ocorreu um erro ao gerar o Ebook. Verifique o console (F12) para mais detalhes. Erro: " + error.message);
+            } finally {
+                generateBtn.disabled = false;
+                loadingMsg.style.display = 'none';
+            }
+        }
+
+
+        /**
+         * Etapa 2: Gera o PDF a partir do conteúdo editado no modal.
+         */
+        async function generatePdfFromEditor() {
+            const finalContentRaw = document.getElementById('book-content-editor').value;
+            closeModal();
+            
+            const generateBtn = document.getElementById('generate-button');
+            const loadingMsg = document.getElementById('loading-message');
+            
+            generateBtn.disabled = true;
+            generateBtn.innerText = "Finalizando PDF...";
+            loadingMsg.style.display = 'block';
+
+            try {
+                const title = document.getElementById('title-input').value;
+                const author = document.getElementById('author-input').value || "Autor Desconhecido";
+                const fontSize = document.getElementById('font-size-select').value;
                 
+                const bookContentHTML = parseContentToHtml(finalContentRaw);
                 
-                // 5. MONTAR O HTML PARA GERAÇÃO DO PDF (CAPA SIMPLES)
+                // 1. MONTAR O HTML PARA GERAÇÃO DO PDF
                 const pdfContentArea = document.getElementById('pdf-content-area');
                 pdfContentArea.innerHTML = `
                     <div class="cover-page">
@@ -236,7 +311,7 @@
                         </div>
                         <p style="font-style: italic; max-width: 400px; padding: 10px; color: #ecf0f1;">
                             Este Ebook foi gerado pela IA. 
-                            <br><br>Prompt da Capa Sugerido: ${capaPromptLine.substring(0, 150)}...
+                            <br><br>Prompt da Capa Sugerido: ${lastGeneratedCapaPrompt.substring(0, 150)}...
                         </p>
                     </div>
                     
@@ -245,9 +320,7 @@
                     </div>
                 `;
                 
-                // 6. GERAR O PDF USANDO JSLIBRARIES
-                generateBtn.innerText = "Finalizando PDF...";
-                
+                // 2. GERAR O PDF USANDO JSLIBRARIES
                 const { jsPDF } = window.jspdf;
                 const pdf = new jsPDF('p', 'pt', 'a4'); 
 
@@ -261,7 +334,7 @@
                             const imgData = canvas.toDataURL('image/jpeg', 1.0);
                             const imgProps= pdf.getImageProperties(imgData);
                             const pdfWidth = pdf.internal.pageSize.getWidth();
-                            const pdfHeight = (imgProps.height * pdfWidth) / imgProps.width;
+                            const pdfHeight = (imgProps.height * pdfWidth) / imgProps.innerWidth;
 
                             if (i > 0) {
                                 pdf.addPage();
@@ -274,22 +347,21 @@
 
                 await Promise.all(promises);
 
-                // 7. Salva o PDF
+                // 3. Salva o PDF
                 const finalFileName = `${title.replace(/ /g, '_')}_BookAI.pdf`;
                 pdf.save(finalFileName);
                 
-                // 8. Exibe o link de download
-                downloadLinkDiv.style.display = 'block';
+                // 4. Exibe o link de download
+                document.getElementById('download-link').style.display = 'block';
                 document.getElementById('pdf-download').innerText = `✅ PDF Gerado! Baixe Agora`;
                 document.getElementById('pdf-download').href = '#'; 
 
             } catch (error) {
-                console.error("Erro Crítico:", error);
-                alert("Ocorreu um erro ao gerar o Ebook. Verifique o console (F12) para mais detalhes. Erro: " + error.message);
+                console.error("Erro Crítico no PDF:", error);
+                alert("Ocorreu um erro ao gerar o PDF. Verifique o console (F12) para mais detalhes. Erro: " + error.message);
             } finally {
-                // 9. Restaurar o botão
                 generateBtn.disabled = false;
-                generateBtn.innerText = "Gerar Ebook e Capa em PDF";
+                generateBtn.innerText = "Gerar Rascunho e Visualizar Edição";
                 loadingMsg.style.display = 'none';
                 document.getElementById('pdf-content-area').innerHTML = '';
             }
