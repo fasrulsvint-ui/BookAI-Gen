@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>BookAI - Uso Local e Pessoal (Final)</title>
+    <title>BookAI - Uso Local e Pessoal (Final Corrigido)</title>
     
     <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js"></script>
@@ -29,7 +29,7 @@
         #generate-button:hover { background-color: #27ae60; }
         #loading-message { grid-column: 1 / 2; text-align: center; font-size: 1.2em; color: #f39c12; margin-top: 20px; display: none; }
         #download-link { grid-column: 1 / 2; text-align: center; margin-top: 30px; display: none; }
-        #download-link a { padding: 15px 30px; background-color: #3498db; color: white; text-decoration: none; border-radius: 5px; font-size: 1.2em; display: inline-block; transition: background-color 0.3s; }
+        #download-link a { padding: 15px 30px; background-color: #3498db; color: white; text-decoration: none; border-radius: 5-px; font-size: 1.2em; display: inline-block; transition: background-color 0.3s; }
         #download-link a:hover { background-color: #2980b9; }
         #pdf-content-area { position: absolute; left: -9999px; width: 700px; padding: 50px; background-color: white; }
         .book-page { width: 700px; height: 990px; padding: 50px; box-sizing: border-box; font-size: 12pt; line-height: 1.6; page-break-after: always; }
@@ -139,9 +139,11 @@
         // --- Funções de Navegação e Auxiliares ---
 
         function cleanTitle(synopsis) {
+            // Remove frases repetitivas do início da sinopse para limpar o título
             const clean = synopsis.replace(/(o\s+livro\s+sobre|um\s+ebook\s+sobre|o\s+livro\s+de)/i, '').trim();
             const words = clean.split(' ');
-            return words.slice(0, 5).join(' ') + (words.length > 5 ? '...' : '');
+            // Pega as 5 primeiras palavras para um título limpo
+            return words.slice(0, 5).join(' ') + (words.length > 5 ? '...' : ''); 
         }
 
         function goToConfig(synopsis) {
@@ -149,6 +151,7 @@
             document.getElementById('config-page').style.display = 'grid';
             document.getElementById('synopsis-text').value = synopsis;
             const currentTitle = document.getElementById('title-input').value;
+            // Atualiza o título apenas se for o valor padrão ou o valor anterior gerado
             if (currentTitle === 'Meu Grande Ebook' || currentTitle.startsWith('O Livro de')) {
                 document.getElementById('title-input').value = cleanTitle(synopsis);
             }
@@ -166,6 +169,7 @@
         }
 
         function parseContentToHtml(markdownText) {
+            // Converte Markdown básico em HTML para exibição e PDF
             let html = markdownText.replace(/\n/g, '<br>');
             html = html.replace(/<br>##\s*([^<]*)<br>/g, '<h2>$1</h2>');
             html = html.replace(/<br>#\s*([^<]*)<br>/g, '<h1>$1</h1>');
@@ -208,6 +212,7 @@
             const genre = document.getElementById('genre-input').value;
             const synopsis = document.getElementById('synopsis-text').value;
 
+            // Prompt reforçado para conteúdo humanizado e com formato específico
             const full_prompt = `
                 Aja como um escritor e designer de ebooks altamente criativo, humano e profissional.
                 Seu objetivo é satisfazer todos os pedidos do usuário, entregando um texto de alta qualidade.
@@ -232,14 +237,15 @@
                 ...
                 `;
 
+            // Payload CORRIGIDO (Removido o campo "config" que causava o erro JSON)
             const aiPayload = {
                 contents: [{ role: "user", parts: [{ text: full_prompt }] }],
-                // Configurações de geração (opcional, removido por padrão para evitar erros como o anterior)
             };
             
             try {
                 generateBtn.innerText = "Gerando Conteúdo...";
 
+                // Chamada direta para a API Gemini (insegura, mas funcional localmente)
                 const response = await fetch(`${API_URL}?key=${API_KEY}`, {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
@@ -259,7 +265,7 @@
                 // Processar a Resposta
                 const parts = aiResponseText.split('---').map(s => s.trim());
                 if (parts.length < 2) {
-                    throw new Error("Resposta da IA incompleta. Verifique a formatação do prompt e o conteúdo gerado.");
+                    throw new Error("Resposta da IA incompleta. Certifique-se de que o separador '---' foi gerado.");
                 }
                 
                 lastGeneratedCapaPrompt = parts[0].replace('[CAPA_PROMPT]:', '').trim();
@@ -281,7 +287,7 @@
 
 
         /**
-         * Etapa 2: Gera o PDF a partir do conteúdo editado no modal.
+         * Etapa 2: Gera o PDF a partir do conteúdo editado no modal. (CORRIGIDA: Solução para erro de escala jsPDF)
          */
         async function generatePdfFromEditor() {
             const finalContentRaw = document.getElementById('book-content-editor').value;
@@ -332,9 +338,19 @@
                     promises.push(
                         html2canvas(page, { scale: 3 }).then(canvas => { 
                             const imgData = canvas.toDataURL('image/jpeg', 1.0);
-                            const imgProps= pdf.getImageProperties(imgData);
+                            
                             const pdfWidth = pdf.internal.pageSize.getWidth();
-                            const pdfHeight = (imgProps.height * pdfWidth) / imgProps.innerWidth;
+                            
+                            // Correção para o erro 'Invalid argument passed to jsPDF.scale'
+                            const canvasWidth = canvas.width;
+                            const canvasHeight = canvas.height;
+
+                            if (canvasWidth === 0) {
+                                console.error("Canvas width is zero, skipping page.");
+                                return;
+                            }
+                            
+                            const pdfHeight = (canvasHeight * pdfWidth) / canvasWidth;
 
                             if (i > 0) {
                                 pdf.addPage();
